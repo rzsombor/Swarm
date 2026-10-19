@@ -25,7 +25,7 @@ The e2e test looks for Chromium under `/opt/pw-browsers` (override with `CHROMIU
 | Mouse    | Look (pointer lock; if unavailable, hold left mouse and drag) |
 | W A S D  | Move                                                          |
 | Shift    | Sprint (forward only)                                         |
-| C / Ctrl | Crouch                                                        |
+| C        | Crouch                                                        |
 | Space    | Jump                                                          |
 | F        | Toggle lantern                                                |
 | Esc      | Pause                                                         |

@@ -45,17 +45,27 @@ controller.teleport(level.spawn.position, level.spawn.yaw);
 const overlay = new Overlay();
 let audio: AudioContext | null = null;
 let tick = 0;
+let awaitingLook = false;
+const lanternIntensity = level.lantern.intensity;
 
 const machine = new StateMachine<GameState>();
 
+/** Runs on the overlay click: unlocks audio, then enters play once mouse look is available. */
 function startPlaying(): void {
-  input.requestLook();
   try {
     audio ??= new AudioContext();
     void audio.resume();
   } catch {
     audio = null;
   }
+  if (input.lookMode === 'drag') return machine.go('playing');
+  awaitingLook = true;
+  input.requestLook();
+}
+
+function lookReady(): void {
+  if (!awaitingLook) return;
+  awaitingLook = false;
   machine.go('playing');
 }
 
@@ -66,7 +76,10 @@ machine
     enter: () => overlay.show(null),
     update(dt) {
       if (input.wasPressed('pause')) return 'paused';
-      if (input.wasPressed('toggleLantern')) level.lantern.visible = !level.lantern.visible;
+      // Toggle intensity, not visibility: changing the light count recompiles every shader.
+      if (input.wasPressed('toggleLantern')) {
+        level.lantern.intensity = level.lantern.intensity > 0 ? 0 : lanternIntensity;
+      }
       controller.update(dt);
       return null;
     },
@@ -83,11 +96,19 @@ overlay.onActivate(() => {
   const state = machine.current;
   if (state === 'title' || state === 'paused') startPlaying();
 });
+input.events.on('pointerLockAcquired', lookReady);
 input.events.on('pointerLockLost', () => machine.current === 'playing' && machine.go('paused'));
-input.events.on('lookModeChanged', (mode) => {
-  if (machine.current === 'title' || machine.current === 'paused') {
-    overlay.show(machine.current, mode === 'drag');
+input.events.on('pointerLockDenied', () => {
+  awaitingLook = false;
+  const state = machine.current;
+  if (state === 'title' || state === 'paused') {
+    overlay.show(state, false, 'Mouse capture was refused, click again');
   }
+});
+input.events.on('lookModeChanged', (mode) => {
+  const state = machine.current;
+  if (state === 'title' || state === 'paused') overlay.show(state, mode === 'drag');
+  if (mode === 'drag') lookReady();
 });
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) return;
@@ -118,6 +139,8 @@ const loop = new FixedStepLoop(
     tick++;
   },
   (alpha) => {
+    const look = input.consumeLook();
+    if (machine.current === 'playing') controller.look(look);
     controller.applyToCamera(camera, alpha);
     renderer.render(level.scene, camera);
     debugTools?.update();

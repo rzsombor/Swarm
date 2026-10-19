@@ -49,15 +49,15 @@ describe('InputService', () => {
   });
 
   it('keeps an action down while any bound key is held', () => {
-    target.dispatchEvent(key('keydown', 'KeyC'));
-    target.dispatchEvent(key('keydown', 'ControlLeft'));
-    target.dispatchEvent(key('keyup', 'KeyC'));
+    target.dispatchEvent(key('keydown', 'ShiftLeft'));
+    target.dispatchEvent(key('keydown', 'ShiftRight'));
+    target.dispatchEvent(key('keyup', 'ShiftLeft'));
     input.beginTick();
-    expect(input.isDown('crouch')).toBe(true);
-    expect(input.wasReleased('crouch')).toBe(false);
-    target.dispatchEvent(key('keyup', 'ControlLeft'));
+    expect(input.isDown('sprint')).toBe(true);
+    expect(input.wasReleased('sprint')).toBe(false);
+    target.dispatchEvent(key('keyup', 'ShiftRight'));
     input.beginTick();
-    expect(input.wasReleased('crouch')).toBe(true);
+    expect(input.wasReleased('sprint')).toBe(true);
   });
 
   it('keeps a press that lands between ticks even if released before the tick', () => {
@@ -101,5 +101,26 @@ describe('InputService', () => {
     input.requestLook();
     input.requestLook();
     expect(modes).toEqual(['drag']);
+  });
+
+  it('reports a refused re-lock instead of falling back once pointer lock has worked', () => {
+    const lockElement = { requestPointerLock: () => Promise.resolve() } as unknown as Element;
+    const doc = Object.assign(new EventTarget(), {
+      pointerLockElement: null as Element | null,
+      visibilityState: 'visible',
+    }) as unknown as Document & { pointerLockElement: Element | null };
+    const locking = new InputService({ target, lockElement, doc });
+    const events: string[] = [];
+    locking.events.on('pointerLockAcquired', () => events.push('acquired'));
+    locking.events.on('pointerLockDenied', () => events.push('denied'));
+
+    doc.pointerLockElement = lockElement;
+    doc.dispatchEvent(new Event('pointerlockchange'));
+    doc.pointerLockElement = null;
+    doc.dispatchEvent(new Event('pointerlockchange'));
+    doc.dispatchEvent(new Event('pointerlockerror'));
+
+    expect(events).toEqual(['acquired', 'denied']);
+    expect(locking.lookMode).toBe('pointerlock');
   });
 });

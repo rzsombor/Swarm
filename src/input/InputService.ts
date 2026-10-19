@@ -23,7 +23,8 @@ export const DEFAULT_BINDINGS: Bindings = {
   moveLeft: ['KeyA'],
   moveRight: ['KeyD'],
   sprint: ['ShiftLeft', 'ShiftRight'],
-  crouch: ['KeyC', 'ControlLeft', 'ControlRight'],
+  // Not Ctrl: Ctrl+W (crouch-walk) closes the tab and cannot be intercepted.
+  crouch: ['KeyC'],
   jump: ['Space'],
   interact: ['KeyE'],
   toggleLantern: ['KeyF'],
@@ -36,7 +37,10 @@ export type LookMode = 'pointerlock' | 'drag';
 
 export type InputEvents = {
   lookModeChanged: LookMode;
+  pointerLockAcquired: void;
   pointerLockLost: void;
+  /** A lock request failed after locking had worked before (e.g. the browser's re-lock cooldown after Esc). */
+  pointerLockDenied: void;
 };
 
 export interface InputOptions {
@@ -67,6 +71,7 @@ export class InputService {
   private lookY = 0;
   private mode: LookMode = 'pointerlock';
   private locked = false;
+  private everLocked = false;
   private readonly disposers: (() => void)[] = [];
 
   constructor(private readonly options: InputOptions) {
@@ -89,7 +94,7 @@ export class InputService {
     if (doc) {
       this.listen(doc, 'visibilitychange', () => doc.visibilityState === 'hidden' && this.clear());
       this.listen(doc, 'pointerlockchange', () => this.onPointerLockChange());
-      this.listen(doc, 'pointerlockerror', () => this.setMode('drag'));
+      this.listen(doc, 'pointerlockerror', () => this.onLockError());
     }
   }
 
@@ -128,15 +133,19 @@ export class InputService {
     return delta;
   }
 
-  /** Must run inside a user gesture. Falls back to drag-to-look if pointer lock is unavailable. */
+  /**
+   * Must run inside a user gesture. Resolves via `pointerLockAcquired`, `pointerLockDenied`, or a
+   * switch to drag-to-look when pointer lock has never worked (e.g. a sandboxed iframe).
+   */
   requestLook(): void {
+    if (this.mode === 'drag') return;
     const element = this.options.lockElement;
-    if (!element?.requestPointerLock) return this.setMode('drag');
+    if (!element?.requestPointerLock) return this.onLockError();
     try {
       const result: unknown = element.requestPointerLock();
-      if (result instanceof Promise) result.catch(() => this.setMode('drag'));
+      if (result instanceof Promise) result.catch(() => this.onLockError());
     } catch {
-      this.setMode('drag');
+      this.onLockError();
     }
   }
 
@@ -189,8 +198,17 @@ export class InputService {
     const locked = this.options.doc?.pointerLockElement === this.options.lockElement;
     const wasLocked = this.locked;
     this.locked = locked;
-    if (locked) this.setMode('pointerlock');
-    else if (wasLocked) this.events.emit('pointerLockLost');
+    if (locked) {
+      this.everLocked = true;
+      this.events.emit('pointerLockAcquired');
+    } else if (wasLocked) {
+      this.events.emit('pointerLockLost');
+    }
+  }
+
+  private onLockError(): void {
+    if (this.everLocked) this.events.emit('pointerLockDenied');
+    else this.setMode('drag');
   }
 
   private setMode(mode: LookMode): void {

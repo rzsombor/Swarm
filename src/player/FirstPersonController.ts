@@ -31,7 +31,7 @@ export const DEFAULT_CONFIG: ControllerConfig = {
   lookSensitivity: 0.0022,
 };
 
-type ControllerInput = Pick<InputService, 'isDown' | 'wasPressed' | 'consumeLook'>;
+type ControllerInput = Pick<InputService, 'isDown' | 'wasPressed'>;
 
 const EYE_INSET = 0.12;
 const PITCH_LIMIT = Math.PI / 2 - 0.01;
@@ -40,7 +40,8 @@ const HEADROOM_TOLERANCE = 0.01;
 /**
  * Kinematic capsule controller. `position` is the point between the feet; the capsule is
  * resolved against a static BVH with the shapecast approach from three-mesh-bvh's
- * characterMovement example. State is stepped at a fixed rate and interpolated for rendering.
+ * characterMovement example. Movement is stepped at a fixed rate and interpolated for rendering;
+ * look is applied per rendered frame so it never lags the mouse.
  */
 export class FirstPersonController {
   readonly config: ControllerConfig;
@@ -55,8 +56,6 @@ export class FirstPersonController {
   private eyeHeight: number;
   private prevPosition = new Vector3();
   private prevEyeHeight: number;
-  private prevYaw = 0;
-  private prevPitch = 0;
 
   private readonly segment = new Line3();
   private readonly box = new Box3();
@@ -82,24 +81,14 @@ export class FirstPersonController {
     this.position.copy(position);
     this.prevPosition.copy(position);
     this.velocity.set(0, 0, 0);
-    this.yaw = this.prevYaw = yaw;
-    this.pitch = this.prevPitch = 0;
+    this.yaw = yaw;
+    this.pitch = 0;
   }
 
   update(dt: number): void {
     const { config, input, velocity } = this;
     this.prevPosition.copy(this.position);
     this.prevEyeHeight = this.eyeHeight;
-    this.prevYaw = this.yaw;
-    this.prevPitch = this.pitch;
-
-    const look = input.consumeLook();
-    this.yaw -= look.x * config.lookSensitivity;
-    this.pitch = MathUtils.clamp(
-      this.pitch - look.y * config.lookSensitivity,
-      -PITCH_LIMIT,
-      PITCH_LIMIT,
-    );
 
     if (input.isDown('crouch')) this.crouching = true;
     else if (this.crouching && this.hasHeadroom()) this.crouching = false;
@@ -142,6 +131,13 @@ export class FirstPersonController {
             : 'walk';
   }
 
+  /** Applies a mouse-look delta in pixels. Call once per rendered frame. */
+  look(delta: { x: number; y: number }): void {
+    const { lookSensitivity } = this.config;
+    this.yaw -= delta.x * lookSensitivity;
+    this.pitch = MathUtils.clamp(this.pitch - delta.y * lookSensitivity, -PITCH_LIMIT, PITCH_LIMIT);
+  }
+
   /** Places the camera at the render-time interpolation between the last two simulation states. */
   applyToCamera(camera: PerspectiveCamera, alpha: number): void {
     const { prevPosition: p0, position: p1 } = this;
@@ -150,12 +146,7 @@ export class FirstPersonController {
       MathUtils.lerp(p0.y, p1.y, alpha) + MathUtils.lerp(this.prevEyeHeight, this.eyeHeight, alpha),
       MathUtils.lerp(p0.z, p1.z, alpha),
     );
-    camera.rotation.set(
-      MathUtils.lerp(this.prevPitch, this.pitch, alpha),
-      MathUtils.lerp(this.prevYaw, this.yaw, alpha),
-      0,
-      'YXZ',
-    );
+    camera.rotation.set(this.pitch, this.yaw, 0, 'YXZ');
   }
 
   private resolveCollisions(dt: number): void {

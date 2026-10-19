@@ -15,12 +15,13 @@ export class Overlay {
   private readonly hint = document.getElementById('overlay-hint') as HTMLElement;
   private readonly crosshair = document.getElementById('crosshair') as HTMLElement;
 
-  show(screen: OverlayScreen | null, dragLook = false): void {
+  /** `note` replaces the call to action, e.g. to explain a refused mouse capture. */
+  show(screen: OverlayScreen | null, dragLook = false, note?: string): void {
     this.root.hidden = screen === null;
     this.crosshair.hidden = screen !== null;
     if (screen === null) return;
     this.title.textContent = SCREENS[screen].title;
-    this.action.textContent = SCREENS[screen].action;
+    this.action.textContent = note ?? SCREENS[screen].action;
     this.hint.textContent = dragLook ? `${CONTROLS} · Hold left mouse to look` : CONTROLS;
   }
 
